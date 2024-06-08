@@ -1,0 +1,121 @@
+---
+title: "HRP 203 Module 3 Project"
+format: pdf
+editor: visual
+---
+#### Harry Koos - 06/07/2024
+
+## Introduction
+
+Heart disease is considered the leading cause of death in the United States and has been for many years. Heart attacks, also known as acute myocardial infarctions (AMIs), are one of the primary acute causes of death for people with heart disease. There is significant debate regarding how patients should be treated when they initially experience an AMI. Less intensive treatments, including drugs like Aspirin, Beta Blockers, and Statins are less costly, but may not have the same effectiveness as more intensive treatments like cardiac catheterization. 
+
+In order to determine the ideal course of treatment, it is critical to understand the marginal benefits and marginal costs of using cardiac catheterization as opposed to other forms of treatment. While many studies have aimed to assess the marginal benefits of this treatment, few have assessed the marginal costs. 
+
+In this study, we attempt to estimate the net marginal costs of receiving cardiac catheterization. The key challenge with this task is that the patients who get this more intensive treatment likely differ from those who do not in ways that may also affect the total cost of care. For example, AMI patients who are smokers may be more likely to receive cardiac catheterization, but also more likley to have longer hospitals stays regardless of whether they recieve this procedure. 
+
+To address this concern, we focus on a sample of AMI patients who have the same health plan and received care from the same health system. We also calculate propensity scores for cardiac catheterization based on observable patient characteristics and use these scores to identify for each treated patient the "nearest neighbor" untreated patient and compare their costs. While this method is not as robust as a randomized controlled trial, it can significantly reduce the bias coming from a raw comparison of treated versus untreated groups.
+
+## Methods
+### Data
+The data for this analysis comes from an anonymous health system located very close to Stanford University in Stanford, California. We observe a random sample of 5,000 patients who all had the same private health plan and experienced a heart attack within the month of January 2024. For each patient we observe their age (ranging 18 - 65), gender (male / female), whether they were a smoker (yes / no), whether they received cardiac catheterization (yes / no), and the total cost of the care they received in the three months following the heart attack. We did not receive IRB approval to conduct this study, but decided to precede anyways.
+
+### Statistical Analysis
+The goals of this analysis is to estimate a less-biased average marginal cost for treating AMI patients with cardiac catheterization. We begin by showing the differences in patient characteristics and costs between the patients who recevied this treatment and those who did not. We perform a t-test to compare the raw difference in mean costs between these populations.
+
+Next, we fit the following logistic regression model on the full sample of patients:
+$$ Cardiac_i = \beta_{1}Smoker_i + \beta_{2}Female_i + \beta_{3}Age_i + error_i $$
+Cardiac is a binary indicator = 1 if patient (i) received cardiac catheterization and = 0 otherwise. Smoker and Female are binary indicators for whether patient (i) was a smoker or female, respectively. Finally, Age is the patient's age in years at the time of the AMI.
+
+We use this model to estimate each patient's propensity score, or probability of receiving the treatment based on their age, gender, and smoking status. With these scores in hand, for each patient that received the treatment, we identify the untreated patient with the closest propensity score to theirs in absolute terms. We then evaluate the extent to which this matching process balanced the observable patient characteristics between treated and untreated groups. Finally, we plot the distribution of costs among the matched groups and perform another t-test to compare the difference in mean costs. 
+
+## Results
+
+A summary of the patient characteristics and costs for our full patient sample and the treated versus untreated subsamples is presented in Table 1. Only 190 patients received cardiac catheterization in our sample and these patients were disproportionately male and more likely to smoke. These patients were also slightly younger, but not by a large margin. In our t-test of the difference in mean costs, we find a statistically significant (P-value <0.001) difference of $556.67 (95% CI = [492.42, 620.92]) between the treated and untreated groups. 
+
+```{r}
+#| label: load-packages
+#| include: false
+
+library(tidyverse)
+library(kableExtra)
+library(MatchIt)
+library(cobalt)
+```
+
+```{r}
+#| label: load-data
+#| include: false
+
+cohort_DF <- read_csv("cohort.csv")
+```
+
+```{r}
+#| label: table-1
+#| echo: false
+
+cardiac_subsets <- group_by(cohort_DF, cardiac) %>% summarise(Patients = as.character(n()),`% Smokers`=as.character(round(mean(smoke),2)*100), `% Female`=as.character(round(mean(female),2)*100), Mean_Age = mean(age), SD_Age = sd(age), Mean_Cost=mean(cost), SD_Cost=sd(cost)) %>% mutate(`Mean Age (SD)` = paste0(round(Mean_Age,2)," (", round(SD_Age,2),")"), `Mean Cost (SD)` = paste0(round(Mean_Cost,2)," (", round(SD_Cost,2),")")) %>% select(-Mean_Age, -SD_Age, -Mean_Cost, -SD_Cost) %>% pivot_longer(cols = c("Patients","% Smokers","% Female", "Mean Age (SD)", "Mean Cost (SD)"), names_to = "Metric", values_to = "Value")
+overall <- group_by(cohort_DF) %>% summarise(Patients = as.character(n()),`% Smokers`=as.character(round(mean(smoke),2)*100), `% Female`=as.character(round(mean(female),2)*100), Mean_Age = mean(age), SD_Age = sd(age), Mean_Cost=mean(cost), SD_Cost=sd(cost)) %>% mutate(`Mean Age (SD)` = paste0(round(Mean_Age,2)," (", round(SD_Age,2),")"), `Mean Cost (SD)` = paste0(round(Mean_Cost,2)," (", round(SD_Cost,2),")")) %>% select(-Mean_Age, -SD_Age, -Mean_Cost, -SD_Cost) %>% pivot_longer(cols = c("Patients","% Smokers","% Female", "Mean Age (SD)", "Mean Cost (SD)"), names_to = "Metric", values_to = "Value")
+summary_table <- cbind(overall, filter(cardiac_subsets, cardiac==1) %>% select(Value), filter(cardiac_subsets,cardiac==0) %>% select(Value))
+colnames(summary_table) <- c("Data Subset", "Full Sample", "Cardiac Catheterization", "No Catheterization")
+
+kable(summary_table, format = "latex", caption = "Patient Characteristics") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "responsive"),
+                full_width = F) %>%
+  column_spec(1, bold = TRUE)
+```
+
+```{r}
+#| label: first-t-test
+#| echo: false
+
+
+cohort_DF$cardiac <- as.factor(cohort_DF$cardiac)
+cohort_DF$cardiac <- relevel(cohort_DF$cardiac, "1")
+mean_treated_pre <- mean(cohort_DF$cost[cohort_DF$cardiac == "1"])
+mean_control_pre <- mean(cohort_DF$cost[cohort_DF$cardiac == "0"])
+Estimate_pre <- mean_treated_pre - mean_control_pre
+t_test_result_pre <- t.test(cost ~ cardiac, data = cohort_DF)
+```
+
+Figure 1 plots the standardized mean differences for the observable patient characteristics and propensity scores (distance) for the matched samples (adjusted) and the full samples (unadjusted). Consistent with the data presented in Table 1, the unadjusted differences are quite stark. However, the adjusted sample has negligible differences between the two groups, suggesting the matching process worked well.
+\vspace{0.5cm}
+
+```{r}
+#| label: propensity-matching
+#| echo: false
+
+cohort_DF$cardiac <- as.factor(cohort_DF$cardiac)
+
+match_it <- matchit(cardiac ~ smoke + female + age,
+                    method = "nearest", data = cohort_DF)
+
+love.plot(match_it, binary = "std", title = "Figure 1: Adjusted vs Unadjusted Covariate Balance")
+matched_data <- match.data(match_it)
+```
+
+\vspace{0.5cm}
+Next, Figure 2 plots the distribution of treatments costs between propensity matched groups of patients who recevied cardiac catheterization (Treated) and those who did not (Control). The plot shows that there is significant overlap between the two groups, suggesting receiving the treatment does not necessarily imply the patient's costs will be hgiher. However, the treated distribution is notably shifted to the right of the control distribution. The dotted lines denote the mean costs of each distribution.
+
+```{r}
+#| label: distribution-plot
+#| echo: false
+
+t_test_result <- t.test(cost ~ cardiac, data = matched_data)
+mean_treated <- mean(matched_data$cost[matched_data$cardiac == "1"])
+mean_control <- mean(matched_data$cost[matched_data$cardiac == "0"])
+Estimate <- mean_treated - mean_control
+
+ggplot(matched_data, aes(x = cost, fill = cardiac)) +
+  geom_density(alpha = 0.4) +
+  scale_fill_manual(values = c("red", "blue"), labels = c("Treated", "Control")) +
+  labs(title = "Figure 2: Density Plot of Cost by Treatment Group",
+       x = "Cost",
+       y = "Density",
+       fill = "Group") +
+  theme_minimal() +
+  geom_vline(aes(xintercept = mean_control), color = "blue", linetype = "dashed", linewidth = 1) +
+  geom_vline(aes(xintercept = mean_treated), color = "red", linetype = "dashed", linewidth = 1) 
+```
+\vspace{0.5cm}
+
+Finally, we performed a t-test on the difference in mean costs between the matched treated and control groups. The result is a statistically significant (P-Value < 0.001) mean difference of $288.17 with a 95% confidence interval of (199.33, 377.00). While cardiac catheterization is clearly associated with higher expenses than alternative forms of treatment, this estimate is considerably smaller than the difference identified prior to controlling for observeable patient characteristics via propensity score matching.
