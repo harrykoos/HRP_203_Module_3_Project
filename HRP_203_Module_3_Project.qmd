@@ -4,6 +4,7 @@ format: pdf
 editor: visual
 ---
 #### Harry Koos - 06/07/2024
+Link to GitHub Repository: <https://github.com/harrykoos/HRP_203_Module_3_Project>
 
 ## Introduction
 
